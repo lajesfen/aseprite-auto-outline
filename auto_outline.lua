@@ -9,6 +9,12 @@ local state = {
     outlineLayer = nil,
 }
 
+local directions = {
+    { x = -1, y = -1 }, { x = 0, y = -1 }, { x = 1, y = -1 },
+    { x = -1, y = 0 }, { x = 1, y = 0 },
+    { x = 1, y = 1 }, { x = 0, y = 1 }, { x = -1, y = 1 },
+}
+
 local function getOrCreateLayer(name)
     for _, layer in ipairs(sprite.layers) do
         if layer.name == name then return layer end
@@ -27,7 +33,28 @@ local function outlineImage(src)
     local outline = Image(width + (state.strokeWidth * 2), height + (state.strokeWidth * 2), sprite.colorMode)
     outline:clear()
 
-    -- ToDo: Add outline logic
+    local color = Color { r = 0, g = 0, b = 0, a = 255 }
+
+    for pixel in src:pixels() do
+        local value = pixel()
+
+        if not isTransparent(value) then
+            for _, dir in ipairs(directions) do
+                local dx = pixel.x + state.strokeWidth + dir.x
+                local dy = pixel.y + state.strokeWidth + dir.y
+
+                local sx = dx - state.strokeWidth
+                local sy = dy - state.strokeWidth
+
+                if dx >= 0 and dy >= 0 and dx < outline.width and dy < outline.height and sx >= 0 and sy >= 0 and sx < width and sy < height then
+                    local neighborValue = src:getPixel(sx, sy) -- Check if neighbor pixel in source image is transparent
+                    if isTransparent(neighborValue) then
+                        outline:drawPixel(dx, dy, color)
+                    end
+                end
+            end
+        end
+    end
 
     return outline
 end
