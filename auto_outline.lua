@@ -1,7 +1,7 @@
 local sprite = app.sprite
 if not sprite then return app.alert("Error: Sprite not found.") end
 
-local outlineLayerName = "Outline"
+local outlineLayerName = "Outline (Locked)"
 local dialog = Dialog { title = "Auto-Outline" }
 local state = {
     enabled = false,
@@ -21,6 +21,7 @@ local function getOrCreateLayer(name)
     end
     local layer = sprite:newLayer()
     layer.name = name
+    layer.isEditable = false
     return layer
 end
 
@@ -61,7 +62,9 @@ end
 
 sprite.events:on("change",
     function(ev)
-        if state.enabled and state.outlineLayer and not ev.fromUndo then
+        if state.enabled and not ev.fromUndo then
+            state.outlineLayer = getOrCreateLayer(outlineLayerName)
+
             app.transaction("Generate Outline", function()
                 for frameIndex = 1, #sprite.frames do
                     local frame = sprite.frames[frameIndex]
@@ -90,10 +93,6 @@ sprite.events:on("change",
 
 local function toggleAutoOutline()
     state.enabled = not state.enabled
-
-    if state.enabled then -- Create outline layer the first time
-        state.outlineLayer = getOrCreateLayer(outlineLayerName)
-    end
 
     dialog:modify {
         id = "toggle",
