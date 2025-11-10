@@ -1,27 +1,44 @@
 local sprite = app.sprite
 if not sprite then return app.alert("Error: Sprite not found.") end
 
-local outlineLayerName = "Outline (Locked)"
+local outlineLayerName = "Auto-Outline"
 local dialog = Dialog { title = "Auto-Outline" }
 local state = {
     enabled = false,
     strokeWidth = 1,
+    strokeColor = Color { r = 0, g = 0, b = 0, a = 255 },
     outlineLayer = nil,
+    kernel = {
+        { x = -1, y = -1 }, { x = 0, y = -1 }, { x = 1, y = -1 },
+        { x = -1, y = 0 }, { x = 0, y = 0 }, { x = 1, y = 0 },
+        { x = -1, y = 1 }, { x = 0, y = 1 }, { x = 1, y = 1 },
+    }
 }
 
-local directions = {
-    { x = -1, y = -1 }, { x = 0, y = -1 }, { x = 1, y = -1 },
-    { x = -1, y = 0 }, { x = 1, y = 0 },
-    { x = 1, y = 1 }, { x = 0, y = 1 }, { x = -1, y = 1 },
-}
+local function generateKernel(size)
+    local tempKernel = {}
+
+    for i = 0, (size * 2) do
+        for j = 0, (size * 2) do
+            table.insert(tempKernel, { x = i - size, y = j - size })
+        end
+    end
+
+    state.kernel = tempKernel
+end
 
 local function getOrCreateLayer(name)
+    local tempLayer = app.layer
     for _, layer in ipairs(sprite.layers) do
         if layer.name == name then return layer end
     end
+
     local layer = sprite:newLayer()
     layer.name = name
     layer.isEditable = false
+    layer.stackIndex = 0
+
+    app.layer = tempLayer
     return layer
 end
 
@@ -34,13 +51,11 @@ local function outlineImage(src)
     local outline = Image(width + (state.strokeWidth * 2), height + (state.strokeWidth * 2), sprite.colorMode)
     outline:clear()
 
-    local color = Color { r = 0, g = 0, b = 0, a = 255 }
-
     for pixel in src:pixels() do
         local value = pixel()
 
         if not isTransparent(value) then
-            for _, dir in ipairs(directions) do
+            for _, dir in ipairs(state.kernel) do
                 local dx = pixel.x + state.strokeWidth + dir.x
                 local dy = pixel.y + state.strokeWidth + dir.y
 
@@ -50,7 +65,7 @@ local function outlineImage(src)
                 if dx >= 0 and dy >= 0 and dx < outline.width and dy < outline.height and sx >= 0 and sy >= 0 and sx < width and sy < height then
                     local neighborValue = src:getPixel(sx, sy) -- Check if neighbor pixel in source image is transparent
                     if isTransparent(neighborValue) then
-                        outline:drawPixel(dx, dy, color)
+                        outline:drawPixel(dx, dy, state.strokeColor)
                     end
                 end
             end
@@ -60,36 +75,41 @@ local function outlineImage(src)
     return outline
 end
 
-sprite.events:on("change",
-    function(ev)
-        if state.enabled and not ev.fromUndo then
-            state.outlineLayer = getOrCreateLayer(outlineLayerName)
+local function generateOutline()
+    if state.enabled then
+        state.outlineLayer = getOrCreateLayer(outlineLayerName)
 
-            app.transaction("Generate Outline", function()
-                for frameIndex = 1, #sprite.frames do
-                    local frame = sprite.frames[frameIndex]
-                    local comp = Image(sprite.spec)
-                    comp:clear()
+        app.transaction("Generate Outline", function()
+            for frameIndex = 1, #sprite.frames do
+                local frame = sprite.frames[frameIndex]
+                local comp = Image(sprite.spec)
+                comp:clear()
 
-                    for _, layer in ipairs(sprite.layers) do -- Add each layer's image to comp
-                        if layer.isImage and layer.isVisible and layer ~= state.outlineLayer then
-                            local cel = layer:cel(frame)
-                            if cel and cel.image then
-                                comp:drawImage(cel.image, cel.position)
-                            end
+                for _, layer in ipairs(sprite.layers) do -- Add each layer's image to comp
+                    if layer.isImage and layer.isVisible and layer ~= state.outlineLayer then
+                        local cel = layer:cel(frame)
+                        if cel and cel.image then
+                            comp:drawImage(cel.image, cel.position)
                         end
                     end
-
-                    local outImg = outlineImage(comp)
-                    sprite:newCel(state.outlineLayer, frame, outImg,
-                        Point { x = -state.strokeWidth, y = -state.strokeWidth }) -- Offset outline image by stroke width
                 end
-            end)
 
-            app.refresh()
+                local outImg = outlineImage(comp)
+                sprite:newCel(state.outlineLayer, frame, outImg,
+                    Point { x = -state.strokeWidth, y = -state.strokeWidth }) -- Offset outline image by stroke width
+            end
+        end)
+
+        app.refresh()
+    end
+end
+
+sprite.events:on("change",
+    function(ev)
+        if not ev.fromUndo then
+            generateOutline()
         end
     end)
-
 
 local function toggleAutoOutline()
     state.enabled = not state.enabled
@@ -101,11 +121,23 @@ local function toggleAutoOutline()
 end
 
 dialog:slider {
-    id = "stroke",
+    id = "strokeWidth",
     label = "Stroke Width",
     min = 1, max = 10, value = state.strokeWidth,
     onchange = function()
-        state.strokeWidth = dialog.data.stroke
+        state.strokeWidth = dialog.data.strokeWidth
+        generateKernel(state.strokeWidth)
+        generateOutline()
+    end
+}
+
+dialog:color {
+    id = "strokeColor",
+    label = "Stroke Color",
+    color = state.strokeColor,
+    onchange = function()
+        state.strokeColor = dialog.data.strokeColor
+        generateOutline()
     end
 }
 
